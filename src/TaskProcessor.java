@@ -12,21 +12,25 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 
 public class TaskProcessor<V> {
 	
-	private static TaskProcessor _instance;
-	
-	private static final int CORE_POOL_SIZE = 1;
+	private static TaskProcessor<?> _instance;
 
-	private static final int BLOCKING_QUEUE_SIZE = 10;
-	
-	private static final int KEEP_ALIVE_2_MINS = 2 * 60 * 60 * 1000; 
+	private volatile int BLOCKING_QUEUE_SIZE;
+
+	private volatile long KEEP_ALIVE_TIME;
+
+	private volatile Requester loopRequester;
 	
 	//private final Worker<Integer> worker ;
 	private final ThreadFactory threadFactory ;
 	
-	private final BlockingQueue<Runnable>workQueue;
-	private TaskProcessor()
+	public final BlockingQueue<Runnable> requestQueue;
+	
+	private TaskProcessor(int blockingQueueSize, long keepAliveTime)
 	{
-		threadFactory = new ThreadFactory() {
+		
+		this.KEEP_ALIVE_TIME =  keepAliveTime;
+		this.BLOCKING_QUEUE_SIZE = blockingQueueSize;
+		this.threadFactory = new ThreadFactory() {
 			
 			@Override
 			public Thread newThread(Runnable r) {
@@ -34,12 +38,12 @@ public class TaskProcessor<V> {
 			}
 		};
 		
-		workQueue = new LinkedBlockingQueue<Runnable>(BLOCKING_QUEUE_SIZE);
+		this.requestQueue = new LinkedBlockingQueue<Runnable>();
 		
 	}
 	
 	@SuppressWarnings("rawtypes")
-	public static TaskProcessor getInstance() 
+	public static TaskProcessor getInstance(int blockingQueueSize, long keepAliveTime) 
 	{
 		if (_instance == null) 
 		{
@@ -47,25 +51,69 @@ public class TaskProcessor<V> {
 			{
 				if (_instance == null) 
 				{
-					_instance = new TaskProcessor();
+					_instance = new TaskProcessor(blockingQueueSize, keepAliveTime);
 				}
 			}
 		}
 		return _instance;
 	}
 	
-	Worker<Integer> worker;
-	public Future<V> submit(Callable<V> task)
+	public Future<V> queueRequest(Callable<V> task)
 	{
-		if(task == null)
-			throw new IllegalArgumentException();
-		RunnableFuture<V> fTask = new FutureTask<V>(task);
-		execute(fTask);
-		return fTask;
+		RunnableFuture<V> runnableFuture = new FutureTask<V>(task);
+		execute(runnableFuture);
+		return runnableFuture;
 	}
 	
-	private void execute(Runnable command)
+	private void execute(Runnable request)
 	{
+		if(loopRequester == null)
+		{
+			synchronized(TaskProcessor.class)
+			{
+				System.out.println("adding workerThread @" +  Thread.currentThread().getName());
+				if(loopRequester == null)
+				{
+					 loopRequester = new Requester(request, threadFactory) {
+
+							@Override
+							public void executeRequest(Requester requester) {
+								Runnable currentRequest = requester.firstRequest;
+								requester.firstRequest = null;
+								while(currentRequest != null) 
+								{
+									System.out.println("task not null @" +  Thread.currentThread().getName());
+									try 
+									{
+										currentRequest.run();
+									}
+									finally 
+									{
+										currentRequest = null;
+										try {
+											System.out.println("polling : " + Thread.currentThread().getName());
+											currentRequest = requestQueue.poll(KEEP_ALIVE_TIME, TimeUnit.MILLISECONDS);
+										} catch (InterruptedException e) {
+											e.printStackTrace();
+										}
+									}
+								}
+								System.out.println("THREAD COMPLETELY ENDED @" +  Thread.currentThread().getName());
+							}
+							 
+						 };
+						 loopRequester.thread.start();
+				}
+			}
+		}
+		System.out.println("offering @" +  Thread.currentThread().getName());
+		Boolean offered = requestQueue.offer(request);
+		if(!offered)
+		{
+			System.out.println("offering failed @" +  Thread.currentThread().getName());
+			requestQueue.poll(); // remove First 
+			execute(request); // add first
+		}
 		
 	}
 	
