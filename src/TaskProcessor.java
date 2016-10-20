@@ -90,12 +90,7 @@ public class TaskProcessor<V> {
 									finally 
 									{
 										currentRequest = null;
-										try {
-											System.out.println("polling : " + Thread.currentThread().getName());
-											currentRequest = requestQueue.poll(KEEP_ALIVE_TIME, TimeUnit.MILLISECONDS);
-										} catch (InterruptedException e) {
-											e.printStackTrace();
-										}
+										currentRequest = fetchMoreRequestsfromQueue();
 									}
 								}
 								System.out.println("THREAD COMPLETELY ENDED @" +  Thread.currentThread().getName());
@@ -115,6 +110,17 @@ public class TaskProcessor<V> {
 			execute(request); // add first
 		}
 		
+	}
+	
+	private Runnable fetchMoreRequestsfromQueue()
+	{
+		try {
+			System.out.println("polling : " + Thread.currentThread().getName());
+			return requestQueue.poll(KEEP_ALIVE_TIME, TimeUnit.MILLISECONDS);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+			return null;
+		}
 	}
 	
 	
