@@ -73,32 +73,7 @@ public class TaskProcessor<V> {
 			{
 				System.out.println("adding workerThread @" +  Thread.currentThread().getName());
 				if(loopRequester == null)
-				{
-					 loopRequester = new Requester(request, threadFactory) {
-
-							@Override
-							public void executeRequest(Requester requester) {
-								Runnable currentRequest = requester.firstRequest;
-								requester.firstRequest = null;
-								while(currentRequest != null) 
-								{
-									System.out.println("task not null @" +  Thread.currentThread().getName());
-									try 
-									{
-										currentRequest.run();
-									}
-									finally 
-									{
-										currentRequest = null;
-										currentRequest = fetchMoreRequestsfromQueue();
-									}
-								}
-								System.out.println("THREAD COMPLETELY ENDED @" +  Thread.currentThread().getName());
-							}
-							 
-						 };
-						 loopRequester.thread.start();
-				}
+					spawnThread(request);
 			}
 		}
 		System.out.println("offering @" +  Thread.currentThread().getName());
@@ -112,7 +87,32 @@ public class TaskProcessor<V> {
 		
 	}
 	
-	private Runnable fetchMoreRequestsfromQueue()
+	private boolean spawnThread(Runnable runnable)
+	{
+		 loopRequester = new Requester(runnable, threadFactory) {
+
+			@Override
+			public void executeRequest(Requester requester) {
+				Runnable task = requester.firstRequest;
+				requester.firstRequest = null;
+				while(task != null) {
+					System.out.println("task not null @" +  Thread.currentThread().getName());
+					try {
+						task.run();
+					} finally {
+						task = null;
+						task = fetchMoreRequestFromQueue();
+					}
+				}
+				System.out.println("THREAD COMPLETELY ENDED @" +  Thread.currentThread().getName());
+			}
+			 
+		 };
+		 loopRequester.thread.start();
+		 return true;
+	}
+	
+	private Runnable fetchMoreRequestFromQueue()
 	{
 		try {
 			System.out.println("polling : " + Thread.currentThread().getName());
